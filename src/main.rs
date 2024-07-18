@@ -16,6 +16,18 @@ struct FoodResponseV0 {
     urls: Vec<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct FoodResponseV1 {
+    productname: String,
+    id: String,
+    ingredients: String,
+    brands: String,
+    categories: String,
+    quantity: String,
+    nutrients: Vec<String>,
+    urls: Vec<String>,
+}
+
 #[get("/api/nutrient/{key}")]
 async fn get_value(path: web::Path<String>) -> String {
     match fetch_value(path.to_string()) {
@@ -67,7 +79,6 @@ async fn setup() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> 
     // Step 2: Decompress the byte stream
     let binding = response.bytes().await.expect("failed to read bytes!");
     let mut decoder = GzDecoder::new(binding.as_ref());
-
     // Step 3: Split the decompressed data into lines
     let reader = io::BufReader::new(&mut decoder);
     let mut header: Vec<String> = Vec::new();
@@ -76,9 +87,14 @@ async fn setup() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> 
         let mut nutrients: Vec<String> = Vec::new();
         let mut urls: Vec<String> = Vec::new();
         let mut code: String = String::new();
+        let mut product_name: String = String::new();
+        let mut ingredients: String = String::new();
+        let mut brands: String = String::new();
+        let mut categories: String = String::new();
+        let mut quantity: String = String::new();
         match line {
             (0, Ok(l)) => {
-                //println!("HEADER: {}", l);
+                println!("HEADER: {}", l);
                 header = l
                     .split("\t")
                     .into_iter()
@@ -98,6 +114,21 @@ async fn setup() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> 
                     if &label.contains("url") == &true && word.len() > 0 {
                         urls.push(combined);
                     }
+                    if &label.contains("product_name") == &true && word.len() > 0 {
+                        product_name = word.to_owned();
+                    }
+                    if &label.contains("ingredients") == &true && word.len() > 0 {
+                        ingredients = word.to_owned();
+                    }
+                    if &label.contains("brands") == &true && word.len() > 0 {
+                        brands = word.to_owned();
+                    }
+                    if &label.contains("categories") == &true && word.len() > 0 {
+                        categories = word.to_owned();
+                    }
+                    if &label.contains("quantity") == &true && word.len() > 0 {
+                        quantity = word.to_owned();
+                    }
                     if nr == 0 {
                         code = word.to_owned()
                     }
@@ -105,14 +136,24 @@ async fn setup() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> 
             }), //println!("{}", l), // Process each line (e.g., print it)
             (lnr, Err(e)) => eprintln!("Error reading line {lnr}: {}", e),
         }
-        let nutrition_object = FoodResponseV0 {
+        /*let nutrition_object = FoodResponseV0 {
+        id: code.clone(),
+        nutrients: nutrients.clone(),
+        urls: urls.clone(),
+        };*/
+        let nutrition_object1 = FoodResponseV1 {
+            productname: product_name,
             id: code.clone(),
             nutrients: nutrients,
             urls: urls,
+            ingredients: ingredients,
+            brands: brands,
+            categories: categories,
+            quantity: quantity,
         };
         //dbg!(nutrition_object);
         //println!("{}", serde_json::to_string(&nutrition_object)?);
-        database.insert(code, serde_json::to_string(&nutrition_object)?);
+        database.insert(code, serde_json::to_string(&nutrition_object1)?);
     }
 
     Ok(database)
