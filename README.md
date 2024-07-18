@@ -6,6 +6,16 @@ struct FoodResponseV0 {
     nutrients: Vec<String>,
     urls: Vec<String>,
 }
+struct FoodResponseV1 {
+    productname: String,
+    id: String,
+    ingredients: String,
+    brands: String,
+    categories: String,
+    quantity: String,
+    nutrients: Vec<String>,
+    urls: Vec<String>,
+}
 ```
 nutrients are encoded as ```label:amount```
 
