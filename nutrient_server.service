@@ -1,0 +1,13 @@
+[Unit]
+Description=nutrient_server Service
+After=network.target
+
+[Service]
+ExecStart=/bin/bin/nutrient_server
+Restart=always
+RestartSec=20
+User=nutrientuser
+Group=nutrientgroup
+
+[Install]
+WantedBy=multi-user.target

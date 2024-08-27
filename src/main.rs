@@ -7,6 +7,7 @@ use std::time::Duration;
 static STORE: OnceLock<HashMap<String, String>> = OnceLock::new();
 use actix_web::{get, web, App, HttpServer};
 use local_ip_address::local_ip;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::sync::OnceLock;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -16,7 +17,7 @@ struct FoodResponseV0 {
     urls: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 struct FoodResponseV1 {
     productname: String,
     id: String,
@@ -54,6 +55,68 @@ fn fetch_value(key: String) -> Option<&'static String> {
     }
 }
 
+fn parse_header(l: String) -> Vec<String> {
+    l.split("\t")
+        .into_iter()
+        .map(|substr| substr.to_string())
+        .collect()
+}
+
+fn parse_data(l: String, header: Vec<String>) -> FoodResponseV1 {
+    let mut nutrients: Vec<String> = Vec::new();
+    let mut urls: Vec<String> = Vec::new();
+    let mut code: String = String::new();
+    let mut product_name: String = String::new();
+    let mut ingredients: String = String::new();
+    let mut brands: String = String::new();
+    let mut categories: String = String::new();
+    let mut quantity: String = String::new();
+
+    l.split("\t").into_iter().enumerate().for_each(|entry| {
+        let word = entry.1;
+        let nr = entry.0;
+        let labels = &header;
+        if nr <= header.len() {
+            let label = &labels[nr];
+            let combined = format!("{}:{}", label, word);
+            if &label.contains("100g") == &true && word.len() > 0 {
+                nutrients.push(combined.clone());
+            }
+            if &label.contains("url") == &true && word.len() > 0 {
+                urls.push(combined);
+            }
+            if &label.contains("product_name") == &true && word.len() > 0 {
+                product_name = word.to_owned();
+            }
+            if &label.contains("ingredients") == &true && word.len() > 0 {
+                ingredients = word.to_owned();
+            }
+            if &label.contains("brands") == &true && word.len() > 0 {
+                brands = word.to_owned();
+            }
+            if &label.contains("categories") == &true && word.len() > 0 {
+                categories = word.to_owned();
+            }
+            if &label.contains("quantity") == &true && word.len() > 0 {
+                quantity = word.to_owned();
+            }
+            if nr == 0 {
+                code = word.to_owned()
+            }
+        }
+    });
+    FoodResponseV1 {
+        productname: product_name,
+        id: code.clone(),
+        nutrients: nutrients,
+        urls: urls,
+        ingredients: ingredients,
+        brands: brands,
+        categories: categories,
+        quantity: quantity,
+    }
+}
+
 async fn setup() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     // Step 1: Download the .gz file as a byte stream
 
@@ -84,14 +147,7 @@ async fn setup() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> 
     let mut header: Vec<String> = Vec::new();
     let mut database: HashMap<String, String> = HashMap::new();
     for line in reader.lines().enumerate() {
-        let mut nutrients: Vec<String> = Vec::new();
-        let mut urls: Vec<String> = Vec::new();
-        let mut code: String = String::new();
-        let mut product_name: String = String::new();
-        let mut ingredients: String = String::new();
-        let mut brands: String = String::new();
-        let mut categories: String = String::new();
-        let mut quantity: String = String::new();
+        let mut return_struct = FoodResponseV1::default();
         match line {
             (0, Ok(l)) => {
                 println!("HEADER: {}", l);
@@ -101,59 +157,16 @@ async fn setup() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> 
                     .map(|substr| substr.to_string())
                     .collect();
             } // Process each line (e.g., print it)
-            (_lnr, Ok(l)) => l.split("\t").into_iter().enumerate().for_each(|entry| {
-                let word = entry.1;
-                let nr = entry.0;
-                let labels = &header;
-                if nr <= header.len() {
-                    let label = &labels[nr];
-                    let combined = format!("{}:{}", label, word);
-                    if &label.contains("100g") == &true && word.len() > 0 {
-                        nutrients.push(combined.clone());
-                    }
-                    if &label.contains("url") == &true && word.len() > 0 {
-                        urls.push(combined);
-                    }
-                    if &label.contains("product_name") == &true && word.len() > 0 {
-                        product_name = word.to_owned();
-                    }
-                    if &label.contains("ingredients") == &true && word.len() > 0 {
-                        ingredients = word.to_owned();
-                    }
-                    if &label.contains("brands") == &true && word.len() > 0 {
-                        brands = word.to_owned();
-                    }
-                    if &label.contains("categories") == &true && word.len() > 0 {
-                        categories = word.to_owned();
-                    }
-                    if &label.contains("quantity") == &true && word.len() > 0 {
-                        quantity = word.to_owned();
-                    }
-                    if nr == 0 {
-                        code = word.to_owned()
-                    }
-                }
-            }), //println!("{}", l), // Process each line (e.g., print it)
+            (_lnr, Ok(l)) => {
+                return_struct = parse_data(l, header.clone());
+            }
             (lnr, Err(e)) => eprintln!("Error reading line {lnr}: {}", e),
         }
-        /*let nutrition_object = FoodResponseV0 {
-        id: code.clone(),
-        nutrients: nutrients.clone(),
-        urls: urls.clone(),
-        };*/
-        let nutrition_object1 = FoodResponseV1 {
-            productname: product_name,
-            id: code.clone(),
-            nutrients: nutrients,
-            urls: urls,
-            ingredients: ingredients,
-            brands: brands,
-            categories: categories,
-            quantity: quantity,
-        };
-        //dbg!(nutrition_object);
-        //println!("{}", serde_json::to_string(&nutrition_object)?);
-        database.insert(code, serde_json::to_string(&nutrition_object1)?);
+
+        database.insert(
+            return_struct.id.clone(),
+            serde_json::to_string(&return_struct)?,
+        );
     }
 
     Ok(database)
